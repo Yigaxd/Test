@@ -101,7 +101,31 @@ CREATE TABLE MECANICO (
     CONSTRAINT PK_MECANICO PRIMARY KEY (MECANICO_RUT)
 );
 
--- -----------------------------------------------------------------------------
+-- =============================================================================
+-- ESQUEMA RELACIONAL LÓGICO FINAL (Notación Estándar):
+-- =============================================================================
+--
+--   CLIENTE ( RUT_CLIENTE [PK], NOM_CLIENTE, FONO_CLIENTE )
+--
+--   VEHICULO ( PATENTE_AUTO [PK], MARCA_AUTO,
+--              RUT_CLIENTE [FK -> CLIENTE.RUT_CLIENTE] )
+--
+--   MECANICO ( MECANICO_RUT [PK], MECANICO_NOM )
+--
+--   REPUESTO ( ID_REPUESTO [PK], NOM_REPUESTO, PRECIO_UNITARIO )
+--
+--   ORDEN ( ID_ORDEN [PK], FECHA,
+--           RUT_CLIENTE [FK -> CLIENTE.RUT_CLIENTE],
+--           PATENTE_AUTO [FK -> VEHICULO.PATENTE_AUTO],
+--           MECANICO_RUT [FK -> MECANICO.MECANICO_RUT] )
+--
+--   DETALLE_ORDEN ( ID_ORDEN [PK, FK -> ORDEN.ID_ORDEN],
+--                   ID_REPUESTO [PK, FK -> REPUESTO.ID_REPUESTO],
+--                   CANTIDAD )
+--
+-- =============================================================================
+-- CREACIÓN DE TABLAS NORMALIZADAS (3FN)
+-- =============================================================================
 -- TABLA: REPUESTO
 -- Entidad independiente extraída para eliminar la dependencia parcial
 -- ID_REPUESTO → {NOM_REPUESTO, PRECIO_UNITARIO}.
