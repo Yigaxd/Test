@@ -1,13 +1,4 @@
--- =============================================================================
 -- SCRIPT DDL FÍSICO: serviexpress_db
--- Motor:   MySQL 8.0+
--- Autor:   Evaluación Unidad C
--- =============================================================================
---
--- DESCRIPCIÓN GENERAL:
--- Este script crea el esquema físico de la base de datos serviexpress_db a
--- partir del modelo relacional normalizado en Tercera Forma Normal (3FN)
--- obtenido en el script de normalización anterior.
 --
 -- ESQUEMA RELACIONAL LÓGICO (referencia):
 --   CLIENTE       ( RUT_CLIENTE [PK], NOM_CLIENTE, FONO_CLIENTE )
@@ -23,66 +14,6 @@
 --                   ID_REPUESTO [PK, FK -> REPUESTO.ID_REPUESTO],
 --                   CANTIDAD )
 --
--- =============================================================================
--- DECISIONES DE DISEÑO FÍSICO
--- =============================================================================
---
--- 1. PATENTES AUTOMOTRICES (VARCHAR(8)):
---    Las patentes se almacenan como texto de 8 caracteres sin guiones ni
---    espacios. El formato chileno actual tiene hasta 6 caracteres alfanuméricos
---    (ej.: DLPP40), pero se reservan 8 para compatibilidad con formatos
---    anteriores o internacionales (ej.: DL-PP-40 sin guión = DLPP40).
---    Se aplica CHAR(8) como tipo fijo cuando todas las patentes tienen
---    longitud exacta; se elige VARCHAR(8) para mayor flexibilidad.
---
--- 2. VALORES MONETARIOS (DECIMAL(10,2)):
---    Se utiliza DECIMAL(10,2) en lugar de FLOAT o DOUBLE porque los tipos
---    de punto flotante pueden producir errores de redondeo (ej.: 25000.00
---    podría representarse internamente como 24999.9999...). DECIMAL almacena
---    valores exactos en base 10, fundamental para cálculos financieros y
---    contables. El rango DECIMAL(10,2) permite valores hasta 99,999,999.99,
---    suficiente para precios de repuestos automotrices en pesos chilenos.
---
--- 3. ORDEN DE CREACIÓN (Jerarquía de dependencias FK):
---    Para evitar errores de referencia al momento de compilar las FK, las
---    tablas se crean en el siguiente orden jerárquico (padres antes que hijos):
---       Nivel 0 (sin FK): CLIENTE, MECANICO, REPUESTO
---       Nivel 1 (FK a Nivel 0): VEHICULO
---       Nivel 2 (FK a Nivel 0 y 1): ORDEN
---       Nivel 3 (FK a Nivel 2 y 0): DETALLE_ORDEN
---
--- 4. COMPORTAMIENTO DE LLAVES FORÁNEAS:
---    ON UPDATE CASCADE : Si se modifica la PK del registro padre (ej.: se
---                        corrige el RUT de un cliente), el cambio se propaga
---                        automáticamente a todas las tablas hijas, manteniendo
---                        la consistencia referencial sin intervención manual.
---    ON DELETE RESTRICT: Impide eliminar un registro padre mientras existan
---                        registros hijos que lo referencien. Protege la
---                        integridad de los datos históricos del negocio
---                        (no se puede borrar un cliente con órdenes activas).
---
--- 5. RESTRICCIONES CHECK:
---    CHECK (PRECIO_UNITARIO > 0)   : El precio de un repuesto debe ser un
---                                    valor positivo estrictamente mayor que
---                                    cero. Un precio nulo o negativo carece
---                                    de sentido en el contexto del negocio.
---    CHECK (CANTIDAD >= 1)         : La cantidad de unidades de un repuesto
---                                    en un detalle de orden debe ser al menos
---                                    1. No es válido registrar un ítem con
---                                    cero o negativo unidades en una orden.
---
--- =============================================================================
-
-
--- =============================================================================
--- 0. CONFIGURACIÓN DEL ENTORNO
--- =============================================================================
-
--- Elimina la base de datos si existe para permitir re-ejecución limpia del script
-DROP DATABASE IF EXISTS serviexpress_db;
-
--- Crea la base de datos con juego de caracteres UTF-8 completo (utf8mb4)
--- para soporte de caracteres especiales del español (tildes, ñ, etc.)
 CREATE DATABASE serviexpress_db
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_spanish_ci;
@@ -91,16 +22,6 @@ CREATE DATABASE serviexpress_db
 USE serviexpress_db;
 
 
--- =============================================================================
--- NIVEL 0: TABLAS SIN DEPENDENCIAS DE LLAVE FORÁNEA
--- =============================================================================
-
--- -----------------------------------------------------------------------------
--- TABLA: CLIENTE
--- Propósito : Almacena los datos personales de los clientes del taller.
--- PK        : RUT_CLIENTE — identificador único natural del cliente en Chile.
--- Nivel FK  : 0 (no depende de ninguna otra tabla).
--- -----------------------------------------------------------------------------
 CREATE TABLE CLIENTE (
     RUT_CLIENTE   VARCHAR(15)   NOT NULL
         COMMENT 'RUT con dígito verificador, formato: 12.345.678-9',
@@ -115,12 +36,6 @@ ENGINE = InnoDB
 COMMENT = 'Clientes registrados en el sistema ServiExpress';
 
 
--- -----------------------------------------------------------------------------
--- TABLA: MECANICO
--- Propósito : Registra a los mecánicos que ejecutan las órdenes de servicio.
--- PK        : MECANICO_RUT — identificador único natural del mecánico.
--- Nivel FK  : 0 (no depende de ninguna otra tabla).
--- -----------------------------------------------------------------------------
 CREATE TABLE MECANICO (
     MECANICO_RUT  VARCHAR(15)   NOT NULL
         COMMENT 'RUT del mecánico con dígito verificador',
@@ -133,13 +48,6 @@ ENGINE = InnoDB
 COMMENT = 'Mecánicos del taller ServiExpress';
 
 
--- -----------------------------------------------------------------------------
--- TABLA: REPUESTO
--- Propósito : Catálogo de repuestos disponibles para las órdenes de servicio.
--- PK        : ID_REPUESTO — código interno del repuesto.
--- Nivel FK  : 0 (no depende de ninguna otra tabla).
--- CHECK     : PRECIO_UNITARIO > 0 — el precio debe ser estrictamente positivo.
--- -----------------------------------------------------------------------------
 CREATE TABLE REPUESTO (
     ID_REPUESTO      VARCHAR(10)    NOT NULL
         COMMENT 'Código interno del repuesto, ej: R01',
@@ -156,20 +64,6 @@ ENGINE = InnoDB
 COMMENT = 'Catálogo de repuestos con precios exactos en DECIMAL(10,2)';
 
 
--- =============================================================================
--- NIVEL 1: TABLAS CON FK A NIVEL 0
--- =============================================================================
-
--- -----------------------------------------------------------------------------
--- TABLA: VEHICULO
--- Propósito : Registra los vehículos atendidos y los asocia a su propietario.
--- PK        : PATENTE_AUTO — VARCHAR(8), patente sin guiones (ej: DLPP40).
--- FK        : RUT_CLIENTE → CLIENTE.RUT_CLIENTE
--- Nivel FK  : 1 (depende de CLIENTE).
--- Nota      : VARCHAR(8) sin guiones cubre tanto el formato antiguo (AB1234,
---             6 chars) como el nuevo (DLPP40, 6 chars) y deja margen para
---             formatos con sufijos regionales de hasta 8 caracteres.
--- -----------------------------------------------------------------------------
 CREATE TABLE VEHICULO (
     PATENTE_AUTO  VARCHAR(8)    NOT NULL
         COMMENT 'Patente sin guiones ni espacios, máximo 8 caracteres, ej: DLPP40',
@@ -189,19 +83,6 @@ ENGINE = InnoDB
 COMMENT = 'Vehículos registrados; patente en VARCHAR(8) sin guiones';
 
 
--- =============================================================================
--- NIVEL 2: TABLAS CON FK A NIVELES 0 Y 1
--- =============================================================================
-
--- -----------------------------------------------------------------------------
--- TABLA: ORDEN
--- Propósito : Encabezado de la orden de servicio del taller.
--- PK        : ID_ORDEN — identificador numérico de la orden.
--- FK        : RUT_CLIENTE  → CLIENTE.RUT_CLIENTE
---             PATENTE_AUTO → VEHICULO.PATENTE_AUTO
---             MECANICO_RUT → MECANICO.MECANICO_RUT
--- Nivel FK  : 2 (depende de CLIENTE, VEHICULO y MECANICO).
--- -----------------------------------------------------------------------------
 CREATE TABLE ORDEN (
     ID_ORDEN      INT            NOT NULL
         COMMENT 'Identificador único de la orden de servicio',
@@ -238,21 +119,7 @@ ENGINE = InnoDB
 COMMENT = 'Encabezado de órdenes de servicio ServiExpress';
 
 
--- =============================================================================
--- NIVEL 3: TABLAS CON FK A NIVELES 2 Y 0 (tabla de intersección)
--- =============================================================================
 
--- -----------------------------------------------------------------------------
--- TABLA: DETALLE_ORDEN
--- Propósito : Líneas de detalle de cada orden; resuelve la relación M:N entre
---             ORDEN y REPUESTO. CANTIDAD depende completamente de (ID_ORDEN,
---             ID_REPUESTO), satisfaciendo 2FN y 3FN.
--- PK        : Compuesta (ID_ORDEN, ID_REPUESTO).
--- FK        : ID_ORDEN    → ORDEN.ID_ORDEN
---             ID_REPUESTO → REPUESTO.ID_REPUESTO
--- Nivel FK  : 3 (depende de ORDEN y REPUESTO).
--- CHECK     : CANTIDAD >= 1 — debe registrarse al menos 1 unidad por línea.
--- -----------------------------------------------------------------------------
 CREATE TABLE DETALLE_ORDEN (
     ID_ORDEN     INT            NOT NULL
         COMMENT 'Orden a la que pertenece el detalle (FK a ORDEN)',
@@ -282,14 +149,6 @@ ENGINE = InnoDB
 COMMENT = 'Detalle de repuestos por orden; PK compuesta (ID_ORDEN, ID_REPUESTO)';
 
 
--- =============================================================================
--- VERIFICACIÓN: MOSTRAR ESTRUCTURA CREADA
--- =============================================================================
-
--- Lista todas las tablas del esquema en el orden en que fueron creadas
-SHOW TABLES;
-
--- Describe la estructura física de cada tabla
 DESCRIBE CLIENTE;
 DESCRIBE MECANICO;
 DESCRIBE REPUESTO;
