@@ -1,0 +1,83 @@
+-- SCRIPT DML: INSERCIÓN DE DATOS DE PRUEBA — serviexpress_db
+--
+USE serviexpress_db;
+
+INSERT INTO CLIENTE (RUT_CLIENTE, NOM_CLIENTE, FONO_CLIENTE) VALUES
+    ('15.432.111-K', 'Carlos Tapia', '56911112222'),
+    ('18.765.432-1', 'Maria Pinto',  '56933334444');
+
+INSERT INTO MECANICO (MECANICO_RUT, MECANICO_NOM) VALUES
+    ('10.888.777-6', 'Juan Gomez'),
+    ('12.555.444-K', 'Raul Soto');
+
+INSERT INTO REPUESTO (ID_REPUESTO, NOM_REPUESTO, PRECIO_UNITARIO) VALUES
+    ('R01', 'Filtro de Aceite',       12000.00),
+    ('R02', 'Aceite Sintético 5W30',  38000.00),
+    ('R03', 'Pastillas de Freno',     25000.00);
+
+INSERT INTO VEHICULO (PATENTE_AUTO, MARCA_AUTO, RUT_CLIENTE) VALUES
+    ('DLPP40', 'Toyota',  '15.432.111-K'),
+    ('GKST12', 'Hyundai', '18.765.432-1');
+
+
+INSERT INTO ORDEN (ID_ORDEN, FECHA, RUT_CLIENTE, PATENTE_AUTO, MECANICO_RUT) VALUES
+    (5001, '2026-05-21', '15.432.111-K', 'DLPP40', '10.888.777-6'),
+    (5002, '2026-05-22', '18.765.432-1', 'GKST12', '12.555.444-K'),
+    (5003, '2026-05-23', '15.432.111-K', 'DLPP40', '10.888.777-6');
+
+
+INSERT INTO DETALLE_ORDEN (ID_ORDEN, ID_REPUESTO, CANTIDAD) VALUES
+    (5001, 'R01', 1),
+    (5001, 'R02', 1),
+    (5002, 'R02', 1),
+    (5002, 'R03', 2),
+    (5003, 'R03', 1);
+
+
+-- VERIFICACIÓN: RECONSTRUCCIÓN DE LA PLANILLA ORIGINAL
+
+
+SELECT
+    o.ID_ORDEN,
+    o.FECHA,
+    c.RUT_CLIENTE,
+    c.NOM_CLIENTE,
+    c.FONO_CLIENTE,
+    v.PATENTE_AUTO,
+    v.MARCA_AUTO,
+    r.ID_REPUESTO,
+    r.NOM_REPUESTO,
+    r.PRECIO_UNITARIO,
+    d.CANTIDAD,
+    (r.PRECIO_UNITARIO * d.CANTIDAD) AS SUBTOTAL,
+    m.MECANICO_RUT,
+    m.MECANICO_NOM
+FROM        ORDEN          o
+INNER JOIN  CLIENTE        c ON o.RUT_CLIENTE   = c.RUT_CLIENTE
+INNER JOIN  VEHICULO       v ON o.PATENTE_AUTO  = v.PATENTE_AUTO
+INNER JOIN  MECANICO       m ON o.MECANICO_RUT  = m.MECANICO_RUT
+INNER JOIN  DETALLE_ORDEN  d ON o.ID_ORDEN      = d.ID_ORDEN
+INNER JOIN  REPUESTO       r ON d.ID_REPUESTO   = r.ID_REPUESTO
+ORDER BY    o.ID_ORDEN, r.ID_REPUESTO;
+
+
+-- =============================================================================
+-- PRUEBAS DE RESTRICCIONES (deben fallar intencionalmente)
+-- Descomentar cada bloque de forma individual para verificar cada constraint.
+-- =============================================================================
+-- -- PRUEBA 1: CHECK precio <= 0 → debe lanzar error de CHECK constraint
+-- INSERT INTO REPUESTO (ID_REPUESTO, NOM_REPUESTO, PRECIO_UNITARIO)
+-- VALUES ('R99', 'Repuesto Inválido', 0.00);
+-- -- PRUEBA 2: CHECK cantidad < 1 → debe lanzar error de CHECK constraint
+-- INSERT INTO DETALLE_ORDEN (ID_ORDEN, ID_REPUESTO, CANTIDAD)
+-- VALUES (5001, 'R03', 0);
+-- -- PRUEBA 3: FK inexistente en ORDEN → debe lanzar error de FK constraint
+-- INSERT INTO ORDEN (ID_ORDEN, FECHA, RUT_CLIENTE, PATENTE_AUTO, MECANICO_RUT)
+-- VALUES (9999, '2026-06-01', '99.999.999-9', 'DLPP40', '10.888.777-6');
+-- -- PRUEBA 4: ON DELETE RESTRICT → debe bloquear el borrado del cliente padre
+-- DELETE FROM CLIENTE WHERE RUT_CLIENTE = '15.432.111-K';
+-- -- PRUEBA 5: ON UPDATE CASCADE → propaga el nuevo RUT a todas las tablas hijas
+-- UPDATE CLIENTE SET RUT_CLIENTE = '15.432.111-0' WHERE RUT_CLIENTE = '15.432.111-K';
+-- -- Verificar propagación:
+-- SELECT RUT_CLIENTE FROM VEHICULO;
+-- SELECT RUT_CLIENTE FROM ORDEN;
