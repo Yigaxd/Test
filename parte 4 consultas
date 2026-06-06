@@ -1,0 +1,114 @@
+-- SCRIPT DML/DDL: CONSULTAS, VISTA Y PROCEDIMIENTO ALMACENADO
+
+USE serviexpress_db;
+
+-- CONSULTA DE RECONSTRUCCIÓN CON INNER JOIN Y CAMPO CALCULADO
+=============================================================================
+
+SELECT
+    o.ID_ORDEN,
+    o.FECHA,
+    c.RUT_CLIENTE,
+    c.NOM_CLIENTE,
+    c.FONO_CLIENTE,
+    v.PATENTE_AUTO,
+    v.MARCA_AUTO,
+    r.ID_REPUESTO,
+    r.NOM_REPUESTO,
+    r.PRECIO_UNITARIO,
+    d.CANTIDAD,
+    (r.PRECIO_UNITARIO * d.CANTIDAD)  AS TOTAL_LINEA,
+    m.MECANICO_RUT,
+    m.MECANICO_NOM
+FROM            ORDEN           o
+    INNER JOIN  CLIENTE         c   ON  o.RUT_CLIENTE   = c.RUT_CLIENTE
+    INNER JOIN  VEHICULO        v   ON  o.PATENTE_AUTO  = v.PATENTE_AUTO
+    INNER JOIN  MECANICO        m   ON  o.MECANICO_RUT  = m.MECANICO_RUT
+    INNER JOIN  DETALLE_ORDEN   d   ON  o.ID_ORDEN      = d.ID_ORDEN
+    INNER JOIN  REPUESTO        r   ON  d.ID_REPUESTO   = r.ID_REPUESTO
+ORDER BY
+    o.ID_ORDEN  ASC;
+
+
+VISTA: vista_resumen_servicios
+
+DROP VIEW IF EXISTS vista_resumen_servicios;
+
+CREATE VIEW vista_resumen_servicios AS
+SELECT
+    o.ID_ORDEN,
+    o.FECHA,
+    c.RUT_CLIENTE,
+    c.NOM_CLIENTE,
+    c.FONO_CLIENTE,
+    v.PATENTE_AUTO,
+    v.MARCA_AUTO,
+    r.ID_REPUESTO,
+    r.NOM_REPUESTO,
+    r.PRECIO_UNITARIO,
+    d.CANTIDAD,
+    (r.PRECIO_UNITARIO * d.CANTIDAD)  AS TOTAL_LINEA,
+    m.MECANICO_RUT,
+    m.MECANICO_NOM
+FROM            ORDEN           o
+    INNER JOIN  CLIENTE         c   ON  o.RUT_CLIENTE   = c.RUT_CLIENTE
+    INNER JOIN  VEHICULO        v   ON  o.PATENTE_AUTO  = v.PATENTE_AUTO
+    INNER JOIN  MECANICO        m   ON  o.MECANICO_RUT  = m.MECANICO_RUT
+    INNER JOIN  DETALLE_ORDEN   d   ON  o.ID_ORDEN      = d.ID_ORDEN
+    INNER JOIN  REPUESTO        r   ON  d.ID_REPUESTO   = r.ID_REPUESTO
+ORDER BY
+    o.ID_ORDEN  ASC;
+
+-- Verificación de la vista
+SELECT * FROM vista_resumen_servicios;
+
+
+
+-- PROCEDIMIENTO ALMACENADO: sp_obtener_servicios_mecanico
+
+DROP PROCEDURE IF EXISTS sp_obtener_servicios_mecanico;
+
+CREATE PROCEDURE sp_obtener_servicios_mecanico (
+    IN  p_mecanico_rut  VARCHAR(15)
+)
+BEGIN
+    -- Consulta interna sobre la vista de resumen.
+    -- Se filtra por MECANICO_RUT igual al parámetro recibido.
+    -- El ORDER BY garantiza salida ordenada por orden ascendente.
+    SELECT
+        ID_ORDEN,
+        FECHA,
+        RUT_CLIENTE,
+        NOM_CLIENTE,
+        FONO_CLIENTE,
+        PATENTE_AUTO,
+        MARCA_AUTO,
+        ID_REPUESTO,
+        NOM_REPUESTO,
+        PRECIO_UNITARIO,
+        CANTIDAD,
+        TOTAL_LINEA,
+        MECANICO_RUT,
+        MECANICO_NOM
+    FROM
+        vista_resumen_servicios
+    WHERE
+        MECANICO_RUT = p_mecanico_rut
+    ORDER BY
+        ID_ORDEN ASC;
+END$$
+
+-- Restaura el delimitador estándar
+DELIMITER ;
+
+
+-- LLAMADAS DE PRUEBA AL PROCEDIMIENTO ALMACENADO
+
+-- Retorna los servicios de Juan Gomez (órdenes 5001 y 5003)
+CALL sp_obtener_servicios_mecanico('10.888.777-6');
+
+-- Retorna los servicios de Raul Soto (orden 5002)
+CALL sp_obtener_servicios_mecanico('12.555.444-K');
+
+-- Retorna conjunto vacío (RUT inexistente — prueba de parámetro sin coincidencia)
+CALL sp_obtener_servicios_mecanico('00.000.000-0');
