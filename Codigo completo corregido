@@ -1,0 +1,277 @@
+-- ============================================================
+-- EVALUACIÓN PRÁCTICA — ServiExpress
+-- ============================================================
+
+-- ============================================================
+-- PARTE 1: NORMALIZACIÓN
+-- ============================================================
+--
+-- TABLA ORIGINAL (desnormalizada):
+--   ID_ORDEN, FECHA, RUT_CLIENTE, NOM_CLIENTE, FONO_CLIENTE,
+--   PATENTE_AUTO, MARCA_AUTO, ID_REPUESTO, NOM_REPUESTO,
+--   PRECIO_UNITARIO, CANTIDAD, MECANICO_RUT, MECANICO_NOM
+--
+-- 1FN — Eliminar grupos repetidos:
+--   La tabla original repite la info del cliente y del vehículo
+--   en cada fila (una por repuesto). Se separan las entidades
+--   en tablas propias para que cada celda tenga un solo valor.
+--
+-- 2FN — Eliminar dependencias parciales:
+--   La PK natural era (ID_ORDEN, ID_REPUESTO). Varios datos
+--   dependían solo de una parte de esa clave:
+--   · NOM_CLIENTE, FONO_CLIENTE → solo dependen de RUT_CLIENTE
+--     → se van a tabla CLIENTE
+--   · MARCA_AUTO → solo depende de PATENTE_AUTO
+--     → se va a tabla VEHICULO
+--   · NOM_REPUESTO, PRECIO_UNITARIO → solo dependen de ID_REPUESTO
+--     → se van a tabla REPUESTO
+--   · FECHA, RUT_CLIENTE, PATENTE_AUTO, MECANICO_RUT → solo
+--     dependen de ID_ORDEN → se van a tabla ORDEN
+--   · Solo CANTIDAD queda en DETALLE_ORDEN (depende de ambas PKs)
+--
+-- 3FN — Eliminar dependencias transitivas:
+--   · MECANICO_NOM depende de MECANICO_RUT, no de ID_ORDEN
+--     → se extrae a tabla MECANICO
+--   Con esto, cada columna depende directamente de su PK
+--   y no de otro campo no clave.
+--
+-- ESQUEMA RELACIONAL LÓGICO FINAL:
+--   CLIENTE      ( RUT_CLIENTE [PK], NOM_CLIENTE, FONO_CLIENTE )
+--   MECANICO     ( MECANICO_RUT [PK], MECANICO_NOM )
+--   REPUESTO     ( ID_REPUESTO [PK], NOM_REPUESTO, PRECIO_UNITARIO )
+--   VEHICULO     ( PATENTE_AUTO [PK], MARCA_AUTO,
+--                  RUT_CLIENTE [FK -> CLIENTE.RUT_CLIENTE] )
+--   ORDEN        ( ID_ORDEN [PK], FECHA,
+--                  RUT_CLIENTE  [FK -> CLIENTE.RUT_CLIENTE],
+--                  PATENTE_AUTO [FK -> VEHICULO.PATENTE_AUTO],
+--                  MECANICO_RUT [FK -> MECANICO.MECANICO_RUT] )
+--   DETALLE_ORDEN( ID_ORDEN    [PK, FK -> ORDEN.ID_ORDEN],
+--                  ID_REPUESTO [PK, FK -> REPUESTO.ID_REPUESTO],
+--                  CANTIDAD )
+-- ============================================================
+
+
+-- ============================================================
+-- PARTE 2: DDL — CREACIÓN DE TABLAS
+-- ============================================================
+
+CREATE DATABASE IF NOT EXISTS serviexpress_db
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_spanish_ci;
+
+USE serviexpress_db;
+
+-- Tabla de clientes
+CREATE TABLE CLIENTE (
+    RUT_CLIENTE   VARCHAR(15)   NOT NULL COMMENT 'RUT con dígito verificador',
+    NOM_CLIENTE   VARCHAR(100)  NOT NULL COMMENT 'Nombre completo',
+    FONO_CLIENTE  VARCHAR(20)   NULL     COMMENT 'Teléfono en formato internacional',
+    CONSTRAINT PK_CLIENTE PRIMARY KEY (RUT_CLIENTE)
+) ENGINE = InnoDB;
+
+-- Tabla de mecánicos
+CREATE TABLE MECANICO (
+    MECANICO_RUT  VARCHAR(15)   NOT NULL COMMENT 'RUT del mecánico',
+    MECANICO_NOM  VARCHAR(100)  NOT NULL COMMENT 'Nombre completo',
+    CONSTRAINT PK_MECANICO PRIMARY KEY (MECANICO_RUT)
+) ENGINE = InnoDB;
+
+-- Tabla de repuestos
+-- PRECIO_UNITARIO usa DECIMAL(10,2): exacto a 2 decimales, evita errores de redondeo
+CREATE TABLE REPUESTO (
+    ID_REPUESTO      VARCHAR(10)    NOT NULL COMMENT 'Código del repuesto, ej: R01',
+    NOM_REPUESTO     VARCHAR(100)   NOT NULL COMMENT 'Nombre del repuesto',
+    PRECIO_UNITARIO  DECIMAL(10,2)  NOT NULL COMMENT 'Precio exacto en CLP',
+    CONSTRAINT PK_REPUESTO      PRIMARY KEY (ID_REPUESTO),
+    CONSTRAINT CHK_PRECIO_POSITIVO CHECK (PRECIO_UNITARIO > 0)
+) ENGINE = InnoDB;
+
+-- Tabla de vehículos
+-- PATENTE_AUTO: VARCHAR(8) sin guiones, ej: DLPP40
+CREATE TABLE VEHICULO (
+    PATENTE_AUTO  VARCHAR(8)    NOT NULL COMMENT 'Patente sin guiones, máx 8 caracteres',
+    MARCA_AUTO    VARCHAR(50)   NOT NULL COMMENT 'Marca del vehículo',
+    RUT_CLIENTE   VARCHAR(15)   NOT NULL COMMENT 'Dueño del vehículo',
+    CONSTRAINT PK_VEHICULO PRIMARY KEY (PATENTE_AUTO),
+    CONSTRAINT FK_VEHICULO_CLIENTE
+        FOREIGN KEY (RUT_CLIENTE) REFERENCES CLIENTE (RUT_CLIENTE)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT
+) ENGINE = InnoDB;
+
+-- Tabla de órdenes de servicio
+CREATE TABLE ORDEN (
+    ID_ORDEN      INT            NOT NULL COMMENT 'ID único de la orden',
+    FECHA         DATE           NOT NULL COMMENT 'Fecha de la orden (YYYY-MM-DD)',
+    RUT_CLIENTE   VARCHAR(15)    NOT NULL COMMENT 'Cliente que solicita el servicio',
+    PATENTE_AUTO  VARCHAR(8)     NOT NULL COMMENT 'Vehículo ingresado al taller',
+    MECANICO_RUT  VARCHAR(15)    NOT NULL COMMENT 'Mecánico responsable',
+    CONSTRAINT PK_ORDEN PRIMARY KEY (ID_ORDEN),
+    CONSTRAINT FK_ORDEN_CLIENTE
+        FOREIGN KEY (RUT_CLIENTE)  REFERENCES CLIENTE  (RUT_CLIENTE)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT FK_ORDEN_VEHICULO
+        FOREIGN KEY (PATENTE_AUTO) REFERENCES VEHICULO (PATENTE_AUTO)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT FK_ORDEN_MECANICO
+        FOREIGN KEY (MECANICO_RUT) REFERENCES MECANICO (MECANICO_RUT)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE = InnoDB;
+
+-- Tabla de detalle (repuestos por orden)
+-- PK compuesta: una orden puede tener varios repuestos
+CREATE TABLE DETALLE_ORDEN (
+    ID_ORDEN     INT            NOT NULL COMMENT 'Orden de servicio',
+    ID_REPUESTO  VARCHAR(10)    NOT NULL COMMENT 'Repuesto usado',
+    CANTIDAD     INT            NOT NULL COMMENT 'Unidades usadas, mínimo 1',
+    CONSTRAINT PK_DETALLE_ORDEN  PRIMARY KEY (ID_ORDEN, ID_REPUESTO),
+    CONSTRAINT FK_DETALLE_ORDEN
+        FOREIGN KEY (ID_ORDEN)     REFERENCES ORDEN    (ID_ORDEN)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT FK_DETALLE_REPUESTO
+        FOREIGN KEY (ID_REPUESTO)  REFERENCES REPUESTO (ID_REPUESTO)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT CHK_CANTIDAD_MINIMA CHECK (CANTIDAD >= 1)
+) ENGINE = InnoDB;
+
+
+-- ============================================================
+-- PARTE 3: DML — INSERCIÓN DE DATOS
+-- ============================================================
+
+USE serviexpress_db;
+
+INSERT INTO CLIENTE (RUT_CLIENTE, NOM_CLIENTE, FONO_CLIENTE) VALUES
+    ('15.432.111-K', 'Carlos Tapia', '56911112222'),
+    ('18.765.432-1', 'Maria Pinto',  '56933334444');
+
+INSERT INTO MECANICO (MECANICO_RUT, MECANICO_NOM) VALUES
+    ('10.888.777-6', 'Juan Gomez'),
+    ('12.555.444-K', 'Raul Soto');
+
+INSERT INTO REPUESTO (ID_REPUESTO, NOM_REPUESTO, PRECIO_UNITARIO) VALUES
+    ('R01', 'Filtro de Aceite',      12000.00),
+    ('R02', 'Aceite Sintético 5W30', 38000.00),
+    ('R03', 'Pastillas de Freno',    25000.00);
+
+-- Patentes insertadas sin guiones según requerimiento (DL-PP-40 → DLPP40)
+INSERT INTO VEHICULO (PATENTE_AUTO, MARCA_AUTO, RUT_CLIENTE) VALUES
+    ('DLPP40', 'Toyota',  '15.432.111-K'),
+    ('GKST12', 'Hyundai', '18.765.432-1');
+
+INSERT INTO ORDEN (ID_ORDEN, FECHA, RUT_CLIENTE, PATENTE_AUTO, MECANICO_RUT) VALUES
+    (5001, '2026-06-01', '15.432.111-K', 'DLPP40', '10.888.777-6'),
+    (5002, '2026-06-02', '18.765.432-1', 'GKST12', '12.555.444-K'),
+    (5003, '2026-06-03', '15.432.111-K', 'DLPP40', '10.888.777-6');
+
+INSERT INTO DETALLE_ORDEN (ID_ORDEN, ID_REPUESTO, CANTIDAD) VALUES
+    (5001, 'R01', 1),
+    (5001, 'R02', 1),
+    (5002, 'R02', 1),
+    (5002, 'R03', 2),
+    (5003, 'R03', 1);
+
+-- Pruebas de restricciones (comentadas para no abortar el script):
+-- PRUEBA 1: precio = 0 → viola CHK_PRECIO_POSITIVO
+-- INSERT INTO REPUESTO VALUES ('R99', 'Repuesto Inválido', 0.00);
+-- PRUEBA 2: cantidad = 0 → viola CHK_CANTIDAD_MINIMA
+-- INSERT INTO DETALLE_ORDEN VALUES (5001, 'R03', 0);
+-- PRUEBA 3: cliente inexistente → viola FK_ORDEN_CLIENTE
+-- INSERT INTO ORDEN VALUES (9999, '2026-06-01', '99.999.999-9', 'DLPP40', '10.888.777-6');
+-- PRUEBA 4: borrar cliente con órdenes → viola ON DELETE RESTRICT
+-- DELETE FROM CLIENTE WHERE RUT_CLIENTE = '15.432.111-K';
+
+
+-- ============================================================
+-- PARTE 4: CONSULTAS Y OBJETOS
+-- ============================================================
+
+USE serviexpress_db;
+
+-- 4.1 Consulta de reconstrucción con INNER JOIN y campo calculado TOTAL_LINEA
+SELECT
+    o.ID_ORDEN,
+    o.FECHA,
+    c.RUT_CLIENTE,
+    c.NOM_CLIENTE,
+    c.FONO_CLIENTE,
+    v.PATENTE_AUTO,
+    v.MARCA_AUTO,
+    r.ID_REPUESTO,
+    r.NOM_REPUESTO,
+    r.PRECIO_UNITARIO,
+    d.CANTIDAD,
+    (r.PRECIO_UNITARIO * d.CANTIDAD) AS TOTAL_LINEA,
+    m.MECANICO_RUT,
+    m.MECANICO_NOM
+FROM           ORDEN          o
+    INNER JOIN CLIENTE        c ON o.RUT_CLIENTE  = c.RUT_CLIENTE
+    INNER JOIN VEHICULO       v ON o.PATENTE_AUTO = v.PATENTE_AUTO
+    INNER JOIN MECANICO       m ON o.MECANICO_RUT = m.MECANICO_RUT
+    INNER JOIN DETALLE_ORDEN  d ON o.ID_ORDEN     = d.ID_ORDEN
+    INNER JOIN REPUESTO       r ON d.ID_REPUESTO  = r.ID_REPUESTO
+ORDER BY o.ID_ORDEN ASC;
+
+
+-- 4.2 Vista que encapsula la consulta anterior
+CREATE VIEW vista_resumen_servicios AS
+SELECT
+    o.ID_ORDEN,
+    o.FECHA,
+    c.RUT_CLIENTE,
+    c.NOM_CLIENTE,
+    c.FONO_CLIENTE,
+    v.PATENTE_AUTO,
+    v.MARCA_AUTO,
+    r.ID_REPUESTO,
+    r.NOM_REPUESTO,
+    r.PRECIO_UNITARIO,
+    d.CANTIDAD,
+    (r.PRECIO_UNITARIO * d.CANTIDAD) AS TOTAL_LINEA,
+    m.MECANICO_RUT,
+    m.MECANICO_NOM
+FROM           ORDEN          o
+    INNER JOIN CLIENTE        c ON o.RUT_CLIENTE  = c.RUT_CLIENTE
+    INNER JOIN VEHICULO       v ON o.PATENTE_AUTO = v.PATENTE_AUTO
+    INNER JOIN MECANICO       m ON o.MECANICO_RUT = m.MECANICO_RUT
+    INNER JOIN DETALLE_ORDEN  d ON o.ID_ORDEN     = d.ID_ORDEN
+    INNER JOIN REPUESTO       r ON d.ID_REPUESTO  = r.ID_REPUESTO
+ORDER BY o.ID_ORDEN ASC;
+
+-- Verificación de la vista
+SELECT * FROM vista_resumen_servicios;
+
+
+-- 4.3 Procedimiento almacenado: devuelve los trabajos de un mecánico por su RUT
+DELIMITER $$
+
+CREATE PROCEDURE sp_obtener_servicios_mecanico (
+    IN p_mecanico_rut VARCHAR(15)
+)
+BEGIN
+    SELECT
+        ID_ORDEN,
+        FECHA,
+        RUT_CLIENTE,
+        NOM_CLIENTE,
+        FONO_CLIENTE,
+        PATENTE_AUTO,
+        MARCA_AUTO,
+        ID_REPUESTO,
+        NOM_REPUESTO,
+        PRECIO_UNITARIO,
+        CANTIDAD,
+        TOTAL_LINEA,
+        MECANICO_RUT,
+        MECANICO_NOM
+    FROM  vista_resumen_servicios
+    WHERE MECANICO_RUT = p_mecanico_rut
+    ORDER BY ID_ORDEN ASC;
+END$$
+
+DELIMITER ;
+
+-- Llamadas de prueba al procedimiento
+CALL sp_obtener_servicios_mecanico('10.888.777-6'); -- Juan Gomez: órdenes 5001 y 5003
+CALL sp_obtener_servicios_mecanico('12.555.444-K'); -- Raul Soto:  orden 5002
+CALL sp_obtener_servicios_mecanico('00.000.000-0'); -- Sin coincidencia: resultado vacío
